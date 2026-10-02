@@ -1,0 +1,27 @@
+{
+  "name": "com.xsec.workspace.browser",
+  "version": "3.0.0",
+  "description": "XSEC browser workspace tool",
+  "author": {
+    "name": "XSEC"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/xsec-labs/xsec-plugins",
+  "interface": {
+    "displayName": "浏览器会话",
+    "shortDescription": "XSEC browser workspace tool",
+    "longDescription": "XSEC 官方浏览器会话：提供 Browser MCP、通用浏览器 Skills 与实时运行诊断。",
+    "developerName": "XSEC",
+    "category": "Security",
+    "capabilities": [
+      "XSEC Desktop",
+      "MCP Server",
+      "Browser Skills"
+    ],
+    "websiteURL": "https://github.com/xsec-labs/xsec-plugins",
+    "defaultPrompt": [
+      "打开 浏览器会话"
+    ],
+    "brandColor": "#4F7CFF"
+  }
+}

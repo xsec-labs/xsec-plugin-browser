@@ -1,0 +1,686 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "com.xsec.workspace.browser",
+  "version": "3.0.0",
+  "description": "XSEC browser session MCP, runtime, and workspace tool",
+  "author": {
+    "name": "XSEC"
+  },
+  "license": "MIT",
+  "extensions": {
+    "com.xsec.desktop": {
+      "schemaVersion": 2,
+      "displayName": "浏览器会话",
+      "publisher": "XSEC",
+      "icon": "globe",
+      "engines": {
+        "xsec": ">=0.1.0",
+        "pluginApi": "^1.4.0"
+      },
+      "entrypoints": {
+        "frontend": "./com.xsec.desktop/frontend/index.js"
+      },
+      "activationEvents": [
+        "onWorkspaceTool:browser",
+        "onSettingsPage:browser"
+      ],
+      "permissions": {
+        "workspace.project.read": {},
+        "workspace.session.read": {},
+        "browser.control": {},
+        "pluginData.read": {},
+        "pluginData.write": {},
+        "mcp.servers.register": {},
+        "native.execute": {}
+      },
+      "frontendApi": {
+        "version": 2,
+        "module": "single-esm",
+        "methods": {
+          "xsec.browser.sessions.list": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.pages.list": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.surface.open": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.surface.ready": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.surface.input": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.surface.acknowledge": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.surface.close": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.presentation.set": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.settings.get": {
+            "capability": "pluginData.read",
+            "binding": "plugin"
+          },
+          "xsec.browser.settings.set": {
+            "capability": "pluginData.write",
+            "binding": "plugin"
+          },
+          "xsec.browser.runtime.get": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.runtime.diagnostics": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.session.upgrade": {
+            "capability": "browser.control",
+            "binding": "session"
+          },
+          "xsec.browser.mcp.tabs": {
+            "capability": "browser.control",
+            "binding": "session",
+            "mcpServer": "browser",
+            "mcpTool": "browser_tabs"
+          },
+          "xsec.browser.mcp.navigate": {
+            "capability": "browser.control",
+            "binding": "session",
+            "mcpServer": "browser",
+            "mcpTool": "browser_navigate"
+          },
+          "xsec.browser.mcp.navigateBack": {
+            "capability": "browser.control",
+            "binding": "session",
+            "mcpServer": "browser",
+            "mcpTool": "browser_navigate_back"
+          },
+          "xsec.browser.mcp.evaluate": {
+            "capability": "browser.control",
+            "binding": "session",
+            "mcpServer": "browser",
+            "mcpTool": "browser_evaluate"
+          }
+        }
+      },
+      "contributes": {
+        "workspaceTools": {
+          "browser": {
+            "title": "浏览器会话",
+            "icon": "globe",
+            "scope": "session",
+            "launchable": true,
+            "policy": "singleton",
+            "surface": "edge-to-edge",
+            "retain": "always",
+            "preferredSideWidth": 880,
+            "preferredBottomHeight": 480,
+            "surfaces": [
+              "interactive-dock",
+              "batch-observe"
+            ]
+          }
+        },
+        "settingsPages": {
+          "browser": {
+            "title": "浏览器会话",
+            "group": "plugins",
+            "page": "browser",
+            "icon": "globe",
+            "order": 500
+          }
+        },
+        "agentTools": {
+          "browser-click": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_click",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-close": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_close",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-console-messages": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_console_messages",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-cookie-clear": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_cookie_clear",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-cookie-delete": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_cookie_delete",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-cookie-get": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_cookie_get",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-cookie-list": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_cookie_list",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-cookie-set": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_cookie_set",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-dialog-status": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_dialog_status",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-drag": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_drag",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-evaluate": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_evaluate",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-file-upload": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_file_upload",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-fill-form": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_fill_form",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-generate-locator": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_generate_locator",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-get-config": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_get_config",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-handle-dialog": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_handle_dialog",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-hover": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_hover",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-localstorage-clear": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_localstorage_clear",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-localstorage-delete": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_localstorage_delete",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-localstorage-get": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_localstorage_get",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-localstorage-list": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_localstorage_list",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-localstorage-set": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_localstorage_set",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-mouse-click-xy": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_mouse_click_xy",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-mouse-down": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_mouse_down",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-mouse-move-xy": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_mouse_move_xy",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-mouse-up": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_mouse_up",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-mouse-wheel": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_mouse_wheel",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-navigate": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_navigate",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-navigate-back": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_navigate_back",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-network-request": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_network_request",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-network-requests": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_network_requests",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-pdf-save": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_pdf_save",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-press-key": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_press_key",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-resize": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_resize",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-select-option": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_select_option",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-session-close": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_session_close",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-session-create": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_session_create",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-session-get": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_session_get",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-sessionstorage-clear": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_sessionstorage_clear",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-sessionstorage-delete": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_sessionstorage_delete",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-sessionstorage-get": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_sessionstorage_get",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-sessionstorage-list": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_sessionstorage_list",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-sessionstorage-set": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_sessionstorage_set",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-snapshot": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_snapshot",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-storage-state": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_storage_state",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-tabs": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_tabs",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-take-screenshot": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_take_screenshot",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-type": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_type",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-verify-element-visible": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_verify_element_visible",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-verify-list-visible": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_verify_list_visible",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-verify-text-visible": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_verify_text_visible",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-verify-value": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_verify_value",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          },
+          "browser-wait-for": {
+            "mcpServer": "browser",
+            "mcpTool": "browser_wait_for",
+            "workspaceToolId": "browser",
+            "permission": "browser.control",
+            "roles": [
+              "parent",
+              "sub"
+            ]
+          }
+        }
+      },
+      "browserContract": {
+        "id": "browser-contract-v3",
+        "version": 3,
+        "sha256": "5d586b451ac61372647f94c7d0143caa3801040a115284c568867db3f2827dff",
+        "toolCount": 53
+      }
+    }
+  }
+}

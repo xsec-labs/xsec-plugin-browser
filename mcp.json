@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "browser": {
+      "type": "stdio",
+      "command": "./bin/browser-mcp",
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}
