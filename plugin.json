@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "com.xsec.workspace.browser",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "XSEC browser session MCP, runtime, and workspace tool",
   "author": {
     "name": "XSEC"
@@ -57,7 +57,7 @@
             "capability": "browser.control",
             "binding": "session"
           },
-          "xsec.browser.surface.acknowledge": {
+          "xsec.browser.surface.presented": {
             "capability": "browser.control",
             "binding": "session"
           },
@@ -101,7 +101,7 @@
             "mcpServer": "browser",
             "mcpTool": "browser_navigate"
           },
-          "xsec.browser.mcp.navigateBack": {
+          "xsec.browser.mcp.navigate-back": {
             "capability": "browser.control",
             "binding": "session",
             "mcpServer": "browser",
