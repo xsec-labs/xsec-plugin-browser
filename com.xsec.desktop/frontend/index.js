@@ -37,12 +37,68 @@ async function browserTabs(host, params) { return browserMcpResult(await host.re
 async function browserNavigate(host, params) { return browserMcpResult(await host.request("xsec.browser.mcp.navigate", params)); }
 async function browserNavigateBack(host, params) { return browserMcpResult(await host.request("xsec.browser.mcp.navigate-back", params)); }
 async function browserEvaluate(host, params) { return browserMcpResult(await host.request("xsec.browser.mcp.evaluate", params)); }
-function browserRpc(host) { return { sessionsList: () => host.request("xsec.browser.sessions.list", {}), pagesList: (browserSessionId) => host.request("xsec.browser.pages.list", { browserSessionId }), createPage: async (browserSessionId) => { const result = await browserTabs(host, { browser_session_id: browserSessionId, action: "new" }); return { page_id: result.current_page_id }; }, selectPage: (browserSessionId, pageId) => browserTabs(host, { browser_session_id: browserSessionId, action: "select", page_id: pageId }), navigatePage: (browserSessionId, pageId, url) => browserNavigate(host, { browser_session_id: browserSessionId, page_id: pageId, url }), pageAction: (browserSessionId, pageId, action) => action === "back" ? browserNavigateBack(host, { browser_session_id: browserSessionId, page_id: pageId }) : action === "forward" ? browserEvaluate(host, { browser_session_id: browserSessionId, page_id: pageId, function: "() => { history.forward(); return true; }" }) : action === "reload" ? browserEvaluate(host, { browser_session_id: browserSessionId, page_id: pageId, function: "() => { location.reload(); return true; }" }) : browserEvaluate(host, { browser_session_id: browserSessionId, page_id: pageId, function: "() => { window.stop(); return true; }" }), closePage: (browserSessionId, pageId) => browserTabs(host, { browser_session_id: browserSessionId, action: "close", page_id: pageId }), openSurface: (browserSessionId, pageId) => host.request("xsec.browser.surface.open", { browserSessionId, pageId, viewportWidth: VIEWPORT_WIDTH, viewportHeight: VIEWPORT_HEIGHT }), readySurface: (surfaceId) => host.request("xsec.browser.surface.ready", { surfaceId }), sendSurfaceInput: (surfaceId, input) => host.request("xsec.browser.surface.input", { surfaceId, input }), closeSurface: (surfaceId) => host.request("xsec.browser.surface.close", { surfaceId }), acknowledgeSurface: (surfaceId, sequence) => host.request("xsec.browser.surface.presented", { surfaceId, sequence }), setPresentationFocus: (focus) => host.request("xsec.browser.presentation.set", { focus }), readSettings: () => host.request("xsec.browser.settings.get", {}), writeSettings: (chromePath) => host.request("xsec.browser.settings.set", { chromePath }), readRuntime: (browserSessionId) => host.request("xsec.browser.runtime.get", { browserSessionId }), runtimeDiagnostics: (browserSessionId) => host.request("xsec.browser.runtime.diagnostics", { browserSessionId }), upgradeSession: (browserSessionId) => host.request("xsec.browser.session.upgrade", { browserSessionId }), onData: (stream, callback) => host.onData(stream, callback) }; }
+function browserRpc(host) {
+  return {
+    sessionsList: () => host.request("xsec.browser.sessions.list", {}),
+    pagesList: (browserSessionId) => host.request("xsec.browser.pages.list", { browserSessionId }),
+    createPage: async (browserSessionId, control) => { const result = await browserTabs(host, { browser_session_id: browserSessionId, action: "new", control }); return { page_id: result.current_page_id }; },
+    selectPage: (browserSessionId, pageId, control) => browserTabs(host, { browser_session_id: browserSessionId, action: "select", page_id: pageId, control }),
+    navigatePage: (browserSessionId, pageId, url, control) => browserNavigate(host, { browser_session_id: browserSessionId, page_id: pageId, url, control }),
+    pageAction: (browserSessionId, pageId, action, control) => {
+      const params = { browser_session_id: browserSessionId, page_id: pageId, control };
+      if (action === "back") return browserNavigateBack(host, params);
+      const source = action === "forward" ? "() => { history.forward(); return true; }" : action === "reload" ? "() => { location.reload(); return true; }" : "() => { window.stop(); return true; }";
+      return browserEvaluate(host, { ...params, function: source });
+    },
+    closePage: (browserSessionId, pageId, control) => browserTabs(host, { browser_session_id: browserSessionId, action: "close", page_id: pageId, control }),
+    openSurface: (browserSessionId, pageId) => host.request("xsec.browser.surface.open", { browserSessionId, pageId, viewportWidth: VIEWPORT_WIDTH, viewportHeight: VIEWPORT_HEIGHT }),
+    readySurface: (surfaceId) => host.request("xsec.browser.surface.ready", { surfaceId }),
+    controlStatus: (browserSessionId) => host.request("xsec.browser.control.status", { browserSessionId }),
+    acquireControl: (browserSessionId, takeover) => host.request("xsec.browser.control.acquire", { browserSessionId, takeover }),
+    releaseControl: (browserSessionId, control) => host.request("xsec.browser.control.release", { browserSessionId, control }),
+    sendSurfaceInput: (surfaceId, input, control) => host.request("xsec.browser.surface.input", { surfaceId, input, control }),
+    closeSurface: (surfaceId) => host.request("xsec.browser.surface.close", { surfaceId }),
+    acknowledgeSurface: (surfaceId, sequence) => host.request("xsec.browser.surface.presented", { surfaceId, sequence }),
+    setPresentationFocus: (focus) => host.request("xsec.browser.presentation.set", { focus }),
+    readSettings: () => host.request("xsec.browser.settings.get", {}),
+    writeSettings: (chromePath) => host.request("xsec.browser.settings.set", { chromePath }),
+    readRuntime: (browserSessionId) => host.request("xsec.browser.runtime.get", { browserSessionId }),
+    runtimeDiagnostics: (browserSessionId) => host.request("xsec.browser.runtime.diagnostics", { browserSessionId }),
+    upgradeSession: (browserSessionId) => host.request("xsec.browser.session.upgrade", { browserSessionId }),
+    onData: (stream, callback) => host.onData(stream, callback),
+  };
+}
+class BrowserLease {
+  constructor(rpc, browserSessionId) { this.rpc = rpc; this.browserSessionId = browserSessionId; this.current = undefined; this.generation = 0; this.closing = false; this.suspended = false; this.acquisitions = new Set(); }
+  get control() { return this.suspended ? undefined : this.current; }
+  async status() {
+    if (this.closing) throw new Error("BROWSER_SESSION_CONTROL_CLOSED");
+    const status = await this.rpc.controlStatus(this.browserSessionId);
+    if (this.closing) throw new Error("BROWSER_SESSION_CONTROL_CLOSED");
+    if (status.generation >= this.generation) { this.generation = status.generation; this.current = status.control || undefined; this.suspended = status.operationPending; }
+    return status;
+  }
+  async acquire(takeover) {
+    if (this.closing) throw new Error("BROWSER_SESSION_CONTROL_CLOSED");
+    const pending = this.rpc.acquireControl(this.browserSessionId, takeover).then((control) => { if (control.generation >= this.generation) { this.generation = control.generation; this.current = control; this.suspended = false; } return control; });
+    this.acquisitions.add(pending);
+    try { const control = await pending; if (this.closing) throw new Error("BROWSER_SESSION_CONTROL_CLOSED"); return control; }
+    finally { this.acquisitions.delete(pending); }
+  }
+  async release(control) { if (this.closing) throw new Error("BROWSER_SESSION_CONTROL_CLOSED"); await this.rpc.releaseControl(this.browserSessionId, control); if (this.current?.leaseId === control.leaseId) this.current = undefined; }
+  dispose() { if (this.disposal) return this.disposal; this.closing = true; this.disposal = this.releaseAcquired(); return this.disposal; }
+  async releaseAcquired() {
+    const results = await Promise.allSettled([...this.acquisitions]); const failures = results.filter((result) => result.status === "rejected").map((result) => result.reason);
+    if (this.current) { try { await this.rpc.releaseControl(this.browserSessionId, this.current); } catch (error) { failures.push(error); } }
+    this.current = undefined;
+    if (failures.length) throw new AggregateError(failures, "BROWSER_SURFACE_CONTROL_RELEASE_FAILED");
+  }
+}
 class BrowserController {
   constructor(rpc, context) {
     this.rpc = rpc; this.context = context || {}; this.key = workspaceKey(this.context);
     this.state = { sessions: [], sessionId: null, userSelected: false, pages: [], groups: [], pageId: null, pageUrl: null, follow: true, focus: false, address: "", error: "", surfaceError: "", busy: "", loading: true, pending: null, observed: null, surfaceState: "" };
-    this.timer = 0; this.revision = 0; this.refreshing = false; this.refreshQueued = false; this.refreshChain = Promise.resolve(); this.refreshLoopPromise = Promise.resolve(); this.disposed = false; this.surface = undefined; this.subscription = undefined; this.surfaceGeneration = 0; this.surfaceErrorKey = "";
+    this.timer = 0; this.revision = 0; this.refreshing = false; this.refreshQueued = false; this.refreshChain = Promise.resolve(); this.refreshLoopPromise = Promise.resolve(); this.disposed = false; this.surface = undefined; this.subscription = undefined; this.surfaceGeneration = 0; this.surfaceErrorKey = ""; this.controlBusy = false; this.controlError = ""; this.closingControl = undefined; this.lease = undefined;
     this.moveTimer = 0; this.pendingMove = undefined; this.inputTail = Promise.resolve(); this.surfaceCloseTail = Promise.resolve(); this.surfaceClosePromises = new Map(); this.orphanedSurfaces = new Map(); this.closingPages = new Set(); this.surfaceTransitionTail = Promise.resolve(); this.surfaceTeardownPromise = undefined; this.closingSurfaceId = ""; this.addressEditPageId = null; this.presentationTails = new Map(); this.sessionControlsKey = ""; this.tabControlsKey = ""; this.canvasContext = undefined; this.composing = false; this.compositionSurfaceId = ""; this.compositionCancelled = false; this.ignoredText = undefined; this.pressedKeys = new Map(); this.mouseButtons = 0; this.mouseSurfaceId = ""; this.lastPoint = { x: 0, y: 0 }; this.frameViewport = undefined; this.frameSurfaceId = ""; this.nextFrameAckAt = 0; this.focusTail = Promise.resolve(); this.focusTarget = false; this.focusRevision = 0; this.visibilityRevision = 0; this.settingsReady = false; this.settingsRevision = 0;
     this.onEscape = (event) => { if (this.focusTarget && event.key === "Escape") void this.setFocus(false).catch((error) => this.fail(error, "presentation")); };
     this.onVisibilityChange = () => void this.handleVisibilityChange(); this.onWindowBlur = () => { const modifiers = this.activeModifierMask(); this.releaseMouseButtons({ modifiers }); this.releasePressedKeys(); };
@@ -92,7 +148,15 @@ class BrowserController {
   invalidateRefresh() { this.revision += 1; if (this.refreshing) this.refreshQueued = true; }
   schedule(delay) { this.clearTimer(); if (this.visible() && !this.state.error) this.timer = window.setTimeout(() => void this.refresh(), delay); }
   clearSurfaceError() { this.surfaceErrorKey = ""; this.state.surfaceError = ""; if (["error", "closed"].includes(this.state.surfaceState)) this.state.surfaceState = ""; }
-  async teardownWorkspace(visibilityRevision) { try { await this.setFocus(false); } finally { if (visibilityRevision === undefined || visibilityRevision === this.visibilityRevision && !this.visible()) await this.closeSurface(); } }
+  async teardownWorkspace(visibilityRevision) {
+    const failures = [];
+    try { await this.setFocus(false); } catch (error) { failures.push(error); }
+    if (visibilityRevision === undefined || visibilityRevision === this.visibilityRevision && !this.visible()) {
+      try { await this.closeSurface(); } catch (error) { failures.push(error); }
+      try { await this.closeLease(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length) throw new AggregateError(failures, "BROWSER_WORKSPACE_DISPOSAL_FAILED");
+  }
   async resetPages() {
     this.clearSurfaceError(); this.closingPages.clear(); Object.assign(this.state, { pages: [], groups: [], pageId: null, pageUrl: null, pending: null, observed: null, address: "" }); await this.closeSurface();
   }
@@ -151,28 +215,28 @@ class BrowserController {
   async choosePage(id) {
     if (this.closingPages.has(id)) return;
     const session = this.session(); if (!session?.live) return;
-    await this.rpc.selectPage(session.id, id);
+    if (this.surface?.controller.control) await this.rpc.selectPage(session.id, id, this.requireControl());
     this.state.pending = null; this.state.follow = false; this.state.pageId = id; this.clearSurfaceError(); this.updateAddress(); console.info("browser.page.selected", { source: "user" }); await this.ensureSurface(); this.render();
   }
   async createPage() {
     const session = this.session(); const key = this.key; if (!session?.live) return;
-    await this.action("new", async (scope) => { const result = await this.rpc.createPage(session.id); if (this.key !== key || this.session()?.id !== session.id || this.state.pageId !== scope.pageId) return; this.state.pending = { pageId: result.page_id, expiresAt: Date.now() + NEW_PAGE_GRACE_MS }; this.state.follow = false; this.state.pageId = result.page_id; scope.pageId = result.page_id; this.clearSurfaceError(); });
+    await this.action("new", async (scope) => { const result = await this.rpc.createPage(session.id, this.requireControl()); if (this.key !== key || this.session()?.id !== session.id || this.state.pageId !== scope.pageId) return; this.state.pending = { pageId: result.page_id, expiresAt: Date.now() + NEW_PAGE_GRACE_MS }; this.state.follow = false; this.state.pageId = result.page_id; scope.pageId = result.page_id; this.clearSurfaceError(); });
   }
   async navigate() {
     const session = this.session(); const page = this.page(); if (!session?.live || !page) return;
     if (this.addressEditPageId && this.addressEditPageId !== page.id) { this.addressEditPageId = null; this.updateAddress(true); return; }
-    const address = this.state.address; await this.action("navigate", () => this.rpc.navigatePage(session.id, page.id, normalizeUrl(address)));
+    const address = this.state.address; await this.action("navigate", () => this.rpc.navigatePage(session.id, page.id, normalizeUrl(address), this.requireControl()));
   }
   async pageAction(action) {
     const session = this.session(); const page = this.page(); if (!session?.live || !page) return;
-    await this.action(action, () => this.rpc.pageAction(session.id, page.id, action));
+    await this.action(action, () => this.rpc.pageAction(session.id, page.id, action, this.requireControl()));
   }
   async closePage(id) {
     const session = this.session(); const key = this.key; if (!session?.live || this.closingPages.has(id)) return; const next = this.state.pageId === id ? pageAfterClose(this.state.pages, id) : null;
     this.closingPages.add(id); this.render();
     try {
       await this.action("close", async (scope) => {
-        await this.rpc.closePage(session.id, id);
+        await this.rpc.closePage(session.id, id, this.requireControl());
         if (this.key !== key || this.session()?.id !== session.id) return;
         if (next && this.state.pageId === id) { this.state.follow = false; this.state.pageId = next; this.clearSurfaceError(); this.updateAddress(); }
         scope.key = this.key; scope.sessionId = this.state.sessionId; scope.pageId = this.state.pageId;
@@ -181,19 +245,41 @@ class BrowserController {
   }
   async closeSurface(clearState = true, invalidate = true) { if (this.surfaceTeardownPromise) return this.surfaceTeardownPromise; this.surfaceTeardownPromise = this.closeSurfaceNow(clearState, invalidate).finally(() => { this.surfaceTeardownPromise = undefined; }); return this.surfaceTeardownPromise;
   } async closeSurfaceNow(clearState = true, invalidate = true) {
-    const surface = this.surface; const subscription = this.subscription; const heldKeys = [...this.pressedKeys.values()]; const heldModifiers = this.activeModifierMask(); this.pressedKeys.clear(); this.closingSurfaceId = this.mouseSurfaceId || surface?.id || ""; const release = this.releaseMouseButtons({ modifiers: heldModifiers, propagate: true }); this.surface = undefined; this.subscription = undefined; if (invalidate) this.surfaceGeneration += 1; this.frameViewport = undefined; this.frameSurfaceId = ""; this.controls?.canvas && (this.controls.canvas.hidden = true); const releaseKeys = async () => { for (const input of heldKeys) await this.rpc.sendSurfaceInput(surface.id, { ...input, event_type: "up", auto_repeat: false }); }; const keyRelease = surface ? this.inputTail.then(releaseKeys, releaseKeys) : Promise.resolve(); const results = await Promise.allSettled([keyRelease, release]); this.clearSurfaceInput(); subscription?.dispose?.(); if (clearState) this.state.surfaceState = ""; await this.closeNativeSurface(surface); const failure = results.find((result) => result.status === "rejected"); if (failure) throw failure.reason;
+    const surface = this.surface; const subscription = this.subscription; const controller = surface?.controller; const control = controller?.control;
+    const heldKeys = [...this.pressedKeys.values()]; const heldModifiers = this.activeModifierMask(); this.pressedKeys.clear();
+    this.closingSurfaceId = this.mouseSurfaceId || surface?.id || ""; this.closingControl = control;
+    const release = this.releaseMouseButtons({ modifiers: heldModifiers, propagate: true }); this.surface = undefined; this.subscription = undefined;
+    if (invalidate) this.surfaceGeneration += 1; this.frameViewport = undefined; this.frameSurfaceId = ""; if (this.controls?.canvas) this.controls.canvas.hidden = true;
+    const releaseKeys = async () => { if (control) for (const input of heldKeys) await this.rpc.sendSurfaceInput(surface.id, { ...input, event_type: "up", auto_repeat: false }, control); };
+    const keyRelease = surface ? this.inputTail.then(releaseKeys, releaseKeys) : Promise.resolve();
+    const results = await Promise.allSettled([keyRelease, release]); this.clearSurfaceInput(); subscription?.dispose?.(); if (clearState) this.state.surfaceState = "";
+    const failures = results.filter((result) => result.status === "rejected").map((result) => result.reason);
+    try { await this.closeNativeSurface(surface); } catch (error) { failures.push(error); }
+    this.closingControl = undefined; if (failures.length) throw new AggregateError(failures, "BROWSER_SURFACE_DISPOSAL_FAILED");
   } closeNativeSurface(surface) { if (!surface) return this.surfaceCloseTail; const existing = this.surfaceClosePromises.get(surface.id); if (existing) return existing; const close = async () => { console.debug("browser.surface.close.started", { pageId: surface.pageId }); await this.rpc.closeSurface(surface.id); }; const operation = this.surfaceCloseTail.then(close, close); const presentation = this.presentationTails.get(surface.id); this.surfaceClosePromises.set(surface.id, operation); void operation.then(() => { this.orphanedSurfaces.delete(surface.id); this.clearSurfaceTails(surface.id, operation, presentation); }, () => { this.orphanedSurfaces.set(surface.id, { id: surface.id, pageId: surface.pageId }); this.clearSurfaceTails(surface.id, operation, presentation); }); this.surfaceCloseTail = operation.catch((error) => console.error("browser.surface.close.failed", { message: errorText(error) })); return operation; }
   clearSurfaceTails(surfaceId, operation, presentation) { if (this.surfaceClosePromises.get(surfaceId) === operation) this.surfaceClosePromises.delete(surfaceId); if (this.presentationTails.get(surfaceId) === presentation) this.presentationTails.delete(surfaceId); }
+  async closeLease() {
+    const controller = this.lease;
+    this.lease = undefined;
+    if (controller) await controller.dispose();
+  }
   async closeOrphanedSurfaces() { const results = await Promise.allSettled([...this.orphanedSurfaces.values()].map((surface) => this.closeNativeSurface(surface))); const failure = results.find((result) => result.status === "rejected"); if (failure) throw failure.reason; }
   surfaceRequestCurrent(generation, sessionId, pageId) { return generation === this.surfaceGeneration && this.visible() && this.session()?.id === sessionId && this.page()?.id === pageId; }
   async ensureSurface() { const run = () => this.ensureSurfaceNow(); this.surfaceTransitionTail = this.surfaceTransitionTail.then(run, run); return this.surfaceTransitionTail; } async ensureSurfaceNow() {
-    const session = this.session(); const page = this.page(); if (!this.visible() || !session?.live || !page) { await this.closeSurface(); return; }
+    const session = this.session(); const page = this.page();
+    if (!this.visible() || !session?.live) { await this.closeSurface(); await this.closeLease(); return; }
+    if (this.lease?.browserSessionId !== session.id) {
+      await this.closeSurface(); await this.closeLease();
+      this.lease = new BrowserLease(this.rpc, session.id);
+      await this.lease.status(); this.render();
+    }
+    if (!page) { await this.closeSurface(); return; }
     const key = this.surfaceKey(session.id, page.id); if (this.surface?.pageId === page.id && this.surface.sessionId === session.id) return; if (this.surfaceErrorKey === key) return;
     const generation = ++this.surfaceGeneration; await this.closeSurface(true, false); if (generation !== this.surfaceGeneration) return; this.state.surfaceState = "connecting"; this.state.surfaceError = ""; this.render(); console.info("browser.surface.open.started", { pageId: page.id });
     try {
       const result = await this.rpc.openSurface(session.id, page.id);
       if (!this.surfaceRequestCurrent(generation, session.id, page.id)) { await this.closeNativeSurface({ id: result.surfaceId, pageId: page.id }); return; }
-      this.surface = { id: result.surfaceId, stream: result.stream, pageId: page.id, sessionId: session.id }; this.nextFrameAckAt = 0;
+      this.surface = { id: result.surfaceId, stream: result.stream, pageId: page.id, sessionId: session.id, controller: this.lease }; this.controlError = ""; this.nextFrameAckAt = 0;
       this.subscription = this.rpc.onData(result.stream, (raw) => { const tail = this.presentationTails.get(result.surfaceId) || Promise.resolve(); const next = tail.then(() => this.present(raw, result.surfaceId), () => this.present(raw, result.surfaceId)).catch((error) => this.failSurface(error, result.surfaceId)); this.presentationTails.set(result.surfaceId, next); void next.then(() => this.clearPresentationTail(result.surfaceId, next), () => this.clearPresentationTail(result.surfaceId, next)); });
       await this.rpc.readySurface(result.surfaceId);
       if (!this.surfaceRequestCurrent(generation, session.id, page.id) || this.surface?.id !== result.surfaceId) {
@@ -204,7 +290,7 @@ class BrowserController {
         else await this.closeNativeSurface(stale || { id: result.surfaceId, pageId: page.id });
         return;
       }
-      console.info("browser.surface.open.completed", { pageId: page.id });
+      await this.surface.controller.status(); this.render(); console.info("browser.surface.open.completed", { pageId: page.id });
     } catch (error) { if (generation !== this.surfaceGeneration || this.session()?.id !== session.id || this.page()?.id !== page.id) return; await this.failSurface(error, undefined, generation); }
   }
   async retrySurface() { await this.closeOrphanedSurfaces(); this.clearSurfaceError(); await this.ensureSurface(); }
@@ -244,8 +330,34 @@ class BrowserController {
     this.focusTail = this.focusTail.then(apply, apply); return this.focusTail;
   }
   releaseMouseButtons(options = {}) { const buttons = this.mouseButtons; const surfaceId = this.mouseSurfaceId || this.surface?.id; const move = this.takePendingMove(); const modifiers = options.modifiers ?? this.activeModifierMask(); this.mouseButtons = 0; this.mouseSurfaceId = ""; if (!buttons || !surfaceId) return Promise.resolve(); return this.queuePointer(surfaceId, [...(move ? [move] : []), ...mouseButtonReleases(buttons, this.lastPoint, modifiers)], options); }
+  requireControl() {
+    const control = this.lease?.control;
+    if (!control || control.kind !== "browser" || control.resourceId !== this.session()?.id) throw new Error("BROWSER_CONTROL_REQUIRED");
+    return control;
+  }
+  async changeControl(takeover) {
+    const controller = this.lease; if (!controller || controller.browserSessionId !== this.session()?.id || this.controlBusy) return; this.controlBusy = true; this.controlError = ""; this.render();
+    try {
+      if (takeover === null) { const control = this.requireControl(); await this.releasePressedKeys(); await this.releaseMouseButtons({ propagate: true }); await this.inputTail; await controller.release(control); }
+      else await controller.acquire(takeover);
+      console.info("browser.control.changed", { action: takeover === null ? "release" : takeover ? "takeover" : "acquire" });
+    } catch (error) { if (this.lease === controller) { controller.suspended = true; this.controlError = errorText(error); this.clearSurfaceInput(); console.error("browser.control.failed", { message: errorText(error) }); } }
+    finally { if (this.lease === controller) { this.controlBusy = false; this.render(); } }
+  }
+  controlFailed(error, surfaceId, leaseId) {
+    const surface = this.surface; if (surface?.id !== surfaceId || surface.controller.current?.leaseId !== leaseId) return;
+    surface.controller.suspended = true; this.controlError = errorText(error); this.clearSurfaceInput(); this.render();
+    console.error("browser.control.input.failed", { message: errorText(error) });
+  }
   sendInput(input, surfaceId = this.surface?.id, options = {}) {
-    if (!surfaceId || this.surface?.id !== surfaceId && this.closingSurfaceId !== surfaceId) return Promise.resolve(); const send = async () => { if (this.surface?.id !== surfaceId && this.closingSurfaceId !== surfaceId) return; try { await this.rpc.sendSurfaceInput(surfaceId, input); } catch (error) { if (options.propagate) throw error; void this.failSurface(error, surfaceId); } };
+    const control = this.surface?.id === surfaceId ? this.surface.controller.control : this.closingSurfaceId === surfaceId ? this.closingControl : undefined;
+    if (!surfaceId || !control) return Promise.resolve();
+    const send = async () => {
+      if (this.surface?.id !== surfaceId && this.closingSurfaceId !== surfaceId) return;
+      if (this.surface?.id === surfaceId && this.surface.controller.control?.leaseId !== control.leaseId) return;
+      try { await this.rpc.sendSurfaceInput(surfaceId, input, control); }
+      catch (error) { this.controlFailed(error, surfaceId, control.leaseId); throw error; }
+    };
     this.inputTail = this.inputTail.then(send, send); return this.inputTail;
   }
   point(event) {
@@ -257,14 +369,14 @@ class BrowserController {
   queueMove(input) { this.pendingMove = input; if (this.moveTimer) return; this.moveTimer = window.setTimeout(() => void this.flushPendingMove(), POINTER_MOVE_MS); }
   async flushPendingMove() { const input = this.takePendingMove(); if (input) await this.queuePointer(this.surface?.id, [input]); }
   render() {
-    if (!this.controls) return; const session = this.session(); const page = this.page(); const live = Boolean(session?.live);
+    if (!this.controls) return; const session = this.session(); const page = this.page(); const live = Boolean(session?.live); const canControl = Boolean(this.lease?.control && this.lease.browserSessionId === session?.id);
     this.controls.app.classList.toggle("focus", this.state.focus); const sessionKey = JSON.stringify([this.state.sessionId, this.state.sessions.map((item) => [item.id, item.live])]); if (sessionKey !== this.sessionControlsKey) { const focused = document.activeElement === this.controls.select; const options = this.state.sessionId ? this.state.sessions.map((item) => sessionOption(item, item.id === this.state.sessionId)) : [sessionOption(null, true), ...this.state.sessions.map((item) => sessionOption(item, false))]; this.controls.select.replaceChildren(...options); if (focused) this.controls.select.focus({ preventScroll: true }); this.sessionControlsKey = sessionKey; }
-    const tabKey = JSON.stringify([this.state.pageId, this.state.busy, this.state.pages.map((item) => [item.id, item.title, item.url, this.closingPages.has(item.id)]), this.state.groups.map((item) => [item.current_page_id, item.owner])]); if (tabKey !== this.tabControlsKey) { const active = document.activeElement; const pageId = active?.closest?.(".tab")?.dataset.pageId; const className = active?.className; this.controls.tabs.replaceChildren(...this.state.pages.map((item) => pageTab(this, item))); if (pageId && (className === "tab-open" || className === "close")) { const restored = this.controls.tabs.querySelector(`.tab[data-page-id="${CSS.escape(pageId)}"] .${className}`); const tab = restored?.closest(".tab"); const target = restored && !restored.disabled ? restored : tab?.querySelector(".tab-open:not(:disabled)") || tab?.nextElementSibling?.querySelector(".tab-open:not(:disabled)") || tab?.previousElementSibling?.querySelector(".tab-open:not(:disabled)") || this.controls.tabs.querySelector(".tab-open:not(:disabled)") || (live && !this.state.busy ? this.controls.newTab : null); target?.focus({ preventScroll: true }); } this.tabControlsKey = tabKey; }
+    const tabKey = JSON.stringify([this.state.pageId, this.state.busy, this.state.pages.map((item) => [item.id, item.title, item.url, this.closingPages.has(item.id)]), this.state.groups.map((item) => [item.current_page_id, item.owner]), canControl]); if (tabKey !== this.tabControlsKey) { const active = document.activeElement; const pageId = active?.closest?.(".tab")?.dataset.pageId; const className = active?.className; this.controls.tabs.replaceChildren(...this.state.pages.map((item) => pageTab(this, item))); if (pageId && (className === "tab-open" || className === "close")) { const restored = this.controls.tabs.querySelector(`.tab[data-page-id="${CSS.escape(pageId)}"] .${className}`); const tab = restored?.closest(".tab"); const target = restored && !restored.disabled ? restored : tab?.querySelector(".tab-open:not(:disabled)") || tab?.nextElementSibling?.querySelector(".tab-open:not(:disabled)") || tab?.previousElementSibling?.querySelector(".tab-open:not(:disabled)") || this.controls.tabs.querySelector(".tab-open:not(:disabled)") || (live && !this.state.busy ? this.controls.newTab : null); target?.focus({ preventScroll: true }); } this.tabControlsKey = tabKey; }
     this.controls.sessionDot.classList.toggle("live", live); this.controls.sessionText.textContent = live ? "真实 Chrome 已连接" : "浏览器已离线"; if (document.activeElement !== this.controls.address) this.controls.address.value = this.state.address;
-    this.controls.follow.classList.toggle("active", this.state.follow); this.controls.focus.classList.toggle("active", this.state.focus); this.controls.follow.setAttribute("aria-pressed", String(this.state.follow)); this.controls.focus.setAttribute("aria-pressed", String(this.state.focus)); setIcon(this.controls.focus, this.state.focus ? "minimize2" : "maximize2"); this.controls.focus.setAttribute("aria-label", this.state.focus ? "退出浏览器专注模式" : "进入浏览器专注模式"); this.controls.focus.title = this.controls.focus.getAttribute("aria-label"); this.controls.error.textContent = this.state.error; this.controls.error.hidden = !this.state.error; this.controls.address.disabled = Boolean(this.state.busy); this.controls.canvas.hidden = !live || !page || this.frameSurfaceId !== this.surface?.id;
+    this.controls.follow.classList.toggle("active", this.state.follow); this.controls.focus.classList.toggle("active", this.state.focus); this.controls.follow.setAttribute("aria-pressed", String(this.state.follow)); this.controls.focus.setAttribute("aria-pressed", String(this.state.focus)); setIcon(this.controls.focus, this.state.focus ? "minimize2" : "maximize2"); this.controls.focus.setAttribute("aria-label", this.state.focus ? "退出浏览器专注模式" : "进入浏览器专注模式"); this.controls.focus.title = this.controls.focus.getAttribute("aria-label"); this.controls.error.textContent = this.controlError || this.state.error; this.controls.error.hidden = !this.controls.error.textContent; this.controls.address.disabled = !canControl || Boolean(this.state.busy); this.controls.keyboard.disabled = !canControl; this.controls.acquire.hidden = canControl; this.controls.takeover.hidden = canControl; this.controls.release.hidden = !canControl; for (const button of [this.controls.acquire, this.controls.takeover, this.controls.release]) button.disabled = !live || !this.lease || this.controlBusy; this.controls.controlState.textContent = canControl ? "控制中" : "观察中"; this.controls.canvas.hidden = !live || !page || this.frameSurfaceId !== this.surface?.id;
     this.controls.empty.hidden = Boolean(live && page); this.controls.empty.textContent = this.state.loading ? "正在读取浏览器会话…" : !this.state.sessions.length ? "当前任务还没有浏览器会话。MCP 创建浏览器后，这里会自动映射真实页面。" : live ? "浏览器中没有页面" : "该浏览器会话已经结束";
     this.controls.surfaceStatus.textContent = this.state.surfaceError || surfaceStatus(this.state.surfaceState); this.controls.surfaceStatus.hidden = !this.controls.surfaceStatus.textContent; this.controls.surfaceRetry.hidden = !this.state.surfaceError && this.state.surfaceState !== "closed";
-    this.controls.newTab.disabled = !live || Boolean(this.state.busy); const newTabLabel = !live ? "浏览器会话未运行，无法新建标签页" : this.state.busy ? "浏览器正在处理操作" : "新建浏览器标签页"; this.controls.newTab.setAttribute("aria-label", newTabLabel); this.controls.newTab.title = newTabLabel; this.controls.actions.forEach((button) => { button.disabled = !live || !page || Boolean(this.state.busy); });
+    this.controls.newTab.disabled = !live || !canControl || Boolean(this.state.busy); const newTabLabel = !live ? "浏览器会话未运行，无法新建标签页" : this.state.busy ? "浏览器正在处理操作" : "新建浏览器标签页"; this.controls.newTab.setAttribute("aria-label", newTabLabel); this.controls.newTab.title = newTabLabel; this.controls.actions.forEach((button) => { button.disabled = !live || !page || !canControl || Boolean(this.state.busy); });
     const owners = this.state.groups.filter((group) => group.current_page_id === this.state.pageId).map((group) => group.owner === "parent" ? "主 Agent" : "子 Agent").join(" · "); this.controls.footer.replaceChildren(element("span", "", page ? `${displayUrl(page.url)} · ${page.id.slice(0, 12)}` : "未选择页面"), element("span", "", owners), element("span", "", `${VIEWPORT_WIDTH} × ${VIEWPORT_HEIGHT}`));
   }
   buildWorkspace() {
@@ -294,7 +406,7 @@ function pageTab(controller, page) {
   const tab = element("div", `tab${page.id === controller.state.pageId ? " active" : ""}`); const open = element("button", "tab-open"); const close = element("button", "close");
   const closing = controller.closingPages.has(page.id); tab.dataset.pageId = page.id; open.type = "button"; open.disabled = closing; if (page.id === controller.state.pageId) open.setAttribute("aria-current", "page"); open.append(lucideIcon("globe"), element("span", "label", pageLabel(page)));
   const groups = controller.state.groups.filter((group) => group.current_page_id === page.id); if (groups.length) open.append(element("em", "owner", groups.some((group) => group.owner === "parent") ? "主" : "子"));
-  open.onclick = () => void controller.choosePage(page.id).catch((error) => controller.fail(error, "page-select")); close.type = "button"; close.setAttribute("aria-label", `关闭 ${pageLabel(page)}`); close.title = close.getAttribute("aria-label"); close.append(lucideIcon("x")); close.disabled = !controller.session()?.live || Boolean(controller.state.busy) || closing; close.onclick = () => void controller.closePage(page.id); tab.append(open, close); return tab;
+  open.onclick = () => void controller.choosePage(page.id).catch((error) => controller.fail(error, "page-select")); close.type = "button"; close.setAttribute("aria-label", `关闭 ${pageLabel(page)}`); close.title = close.getAttribute("aria-label"); close.append(lucideIcon("x")); close.disabled = !controller.session()?.live || !controller.surface?.controller.control || Boolean(controller.state.busy) || closing; close.onclick = () => void controller.closePage(page.id); tab.append(open, close); return tab;
 }
 function icon(name, label, handler) {
   const button = element("button", "icon"); button.type = "button"; button.setAttribute("aria-label", label); button.title = label; button.append(lucideIcon(name)); button.dataset.icon = name; button.onclick = handler; return button;
@@ -304,14 +416,14 @@ function workspaceControls(controller) {
   select.setAttribute("aria-label", "浏览器会话"); select.onchange = () => void controller.chooseSession(select.value).catch((error) => controller.fail(error, "session-select")); sessionState.append(sessionDot, sessionText);
   const follow = icon("radio", "跟随 Agent", () => { controller.state.follow = !controller.state.follow; if (controller.state.follow) controller.state.pending = null; controller.render(); void controller.manualRefresh(); });
   const focus = icon("maximize2", "进入浏览器专注模式", () => void controller.setFocus(!controller.focusTarget).catch((error) => controller.fail(error, "presentation")));
-  const refresh = icon("refreshCw", "重新读取浏览器会话", () => void controller.manualRefresh()); const diagnostics = icon("radio", "浏览器运行时诊断", () => void controller.showRuntimeDiagnostics()); const runtimeUpgrade = icon("refreshCw", "升级旧浏览器会话", () => void controller.upgradeRuntimeSession()); runtimeUpgrade.hidden = true; session.append(select, sessionState, follow, focus, refresh, diagnostics, runtimeUpgrade);
+  const refresh = icon("refreshCw", "重新读取浏览器会话", () => void controller.manualRefresh()); const diagnostics = icon("radio", "浏览器运行时诊断", () => void controller.showRuntimeDiagnostics()); const runtimeUpgrade = icon("refreshCw", "升级旧浏览器会话", () => void controller.upgradeRuntimeSession()); runtimeUpgrade.hidden = true; const acquire = element("button", "", "获取控制权"), takeover = element("button", "", "接管"), release = element("button", "", "释放控制权"), controlState = element("span", "control-state"); for (const button of [acquire, takeover, release]) button.type = "button"; acquire.onclick = () => void controller.changeControl(false); takeover.onclick = () => void controller.changeControl(true); release.onclick = () => void controller.changeControl(null); session.append(select, sessionState, follow, focus, refresh, diagnostics, runtimeUpgrade, controlState, acquire, takeover, release);
   const tabbar = element("div", "tabbar"); const tabs = element("div", "tabs"); tabs.setAttribute("role", "group"); tabs.setAttribute("aria-label", "浏览器标签页"); const newTab = element("button", "new"); newTab.type = "button"; newTab.setAttribute("aria-label", "新建浏览器标签页"); newTab.title = newTab.getAttribute("aria-label"); newTab.append(lucideIcon("plus")); newTab.onclick = () => void controller.createPage(); tabbar.append(tabs, newTab);
   const nav = element("div", "nav"); const back = icon("arrowLeft", "浏览器后退", () => void controller.pageAction("back")); const forward = icon("arrowRight", "浏览器前进", () => void controller.pageAction("forward")); const reload = icon("refreshCw", "浏览器刷新", () => void controller.pageAction("reload")); const stop = icon("square", "停止加载", () => void controller.pageAction("stop"));
   const address = element("input"); address.placeholder = "输入授权范围内的 HTTP/HTTPS 地址"; address.setAttribute("aria-label", "浏览器地址"); address.onfocus = () => { controller.addressEditPageId = controller.state.pageId; }; address.oninput = () => { controller.state.address = address.value; }; address.onblur = () => { controller.addressEditPageId = null; controller.updateAddress(true); address.value = controller.state.address; }; address.onkeydown = (event) => { if (event.key === "Enter" && !controller.state.busy) void controller.navigate(); }; nav.append(back, forward, reload, stop, address);
   const error = element("div", "error"); const runtimeStatus = element("pre", "runtime-info"); runtimeStatus.hidden = true; const stage = element("div", "stage"); const canvas = element("canvas"); const keyboard = element("textarea", "keyboard"); const surfaceStatus = element("div", "surface-status"); const surfaceRetry = element("button", "surface-retry", "重新连接"); const empty = element("div", "empty");
   canvas.setAttribute("aria-label", "真实浏览器页面"); keyboard.setAttribute("aria-label", "浏览器键盘输入"); surfaceRetry.type = "button"; surfaceRetry.onclick = () => void controller.retrySurface().catch((error) => void controller.failSurface(error)); stage.append(canvas, keyboard, surfaceStatus, surfaceRetry, empty);
   const toolbar = element("div", "toolbar"); toolbar.setAttribute("role", "toolbar"); toolbar.setAttribute("aria-label", "浏览器功能区"); toolbar.append(session, nav); const footer = element("footer", "footer"); app.append(tabbar, toolbar, error, runtimeStatus, stage, footer); bindSurfaceInput(controller, canvas, keyboard);
-  return { app, select, sessionDot, sessionText, follow, focus, tabs, newTab, address, error, runtimeStatus, runtimeUpgrade, canvas, keyboard, surfaceStatus, surfaceRetry, empty, footer, actions: [back, forward, reload, stop] };
+  return { app, select, sessionDot, sessionText, follow, focus, tabs, newTab, address, error, runtimeStatus, runtimeUpgrade, canvas, keyboard, surfaceStatus, surfaceRetry, empty, footer, acquire, takeover, release, controlState, actions: [back, forward, reload, stop] };
 }
 function bindSurfaceInput(controller, canvas, keyboard) {
   canvas.oncontextmenu = (event) => event.preventDefault();
