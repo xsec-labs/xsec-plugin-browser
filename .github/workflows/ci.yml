@@ -14,42 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Require the dual plugin manifests
-        run: |
-          test -f plugin.json
-          test -f .codex-plugin/plugin.json
-
-      - name: Validate the v3 browser MCP package contract
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const root = JSON.parse(fs.readFileSync("plugin.json", "utf8"));
-          const catalog = JSON.parse(fs.readFileSync(".codex-plugin/plugin.json", "utf8"));
-          const extension = root.extensions?.["com.xsec.desktop"];
-          const mcp = JSON.parse(fs.readFileSync("mcp.json", "utf8"));
-          const contract = JSON.parse(fs.readFileSync("contracts/browser-contract-v3.json", "utf8"));
-          const tools = Object.keys(contract.tools ?? {}).sort();
-          const skills = fs.readdirSync("skills", { withFileTypes: true })
-            .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-          const bindings = Object.values(extension?.contributes?.agentTools ?? {})
-            .map((binding) => binding.mcpTool).sort();
-          if (root.name !== "com.xsec.workspace.browser" || root.version !== "3.0.0") process.exit(1);
-          if (catalog.name !== root.name || catalog.version !== root.version) process.exit(1);
-          if (!extension || extension.schemaVersion !== 2) process.exit(1);
-          if (JSON.stringify(mcp) !== JSON.stringify({ mcpServers: { browser: { type: "stdio", command: "./bin/browser-mcp", cwd: "${PLUGIN_ROOT}" } } })) process.exit(1);
-          if (tools.length !== 53 || tools.some((tool) => !tool.startsWith("browser_"))) process.exit(1);
-          if (JSON.stringify(bindings) !== JSON.stringify(tools)) process.exit(1);
-          const expectedSkills = [
-            "browser-evidence-replay", "browser-forms-dialogs", "browser-locator-interaction",
-            "browser-navigation-tabs", "browser-network-console", "browser-page-evaluate",
-            "browser-session-lifecycle", "browser-state-storage"
-          ];
-          if (JSON.stringify(skills) !== JSON.stringify(expectedSkills)) process.exit(1);
-          for (const skill of skills) {
-            if (!fs.existsSync(`skills/${skill}/SKILL.md`)) process.exit(1);
-          }
-          NODE
-          python3 skills/quick_validate.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
+      - name: Validate frontend source, generated artifacts and v3 package contract
+        run: npm run validate
 
   source-preflight:
     needs: manifest

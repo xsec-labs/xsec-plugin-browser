@@ -1,0 +1,22 @@
+{
+  "browserSessionId": "bs_e593caaa4a544fcc9e2c00969a279d2c",
+  "response": {
+    "control": {
+      "version": 1,
+      "instanceId": "ef38fda8-3c26-40ba-b82b-67824ce22a5a",
+      "accountContext": "unauthenticated",
+      "epoch": 1,
+      "kind": "browser",
+      "resourceId": "bs_e593caaa4a544fcc9e2c00969a279d2c",
+      "clientId": "add877d3-df62-4715-aaee-93d8553044ab",
+      "leaseId": "f5e1aa46-9eb3-45c8-b800-ab94ea250a4e",
+      "generation": 1
+    }
+  },
+  "provenance": {
+    "boundary": "Production sandbox, paired Server Runtime and true hosted Chrome",
+    "method": "xsec.browser.control.acquire",
+    "outcome": "success",
+    "evidenceSha256": "099cce3f659c91a437b915308868ed5c7eb04c788ac4b147eff664ed758c0434"
+  }
+}
