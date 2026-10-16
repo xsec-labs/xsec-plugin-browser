@@ -98,6 +98,8 @@ test('input modifiers and mouse releases preserve every held button and release 
 test('settings parser enforces path, detection and availability agreement', () => {
   assert.deepEqual(parseSettings({ chromePath: '', detectedPath: null, available: false }), { chromePath: '', detectedPath: null, available: false });
   for (const value of [null, [], {}, { chromePath: '\0', detectedPath: null, available: false }, { chromePath: '', detectedPath: null, available: true }, { chromePath: '', detectedPath: 1, available: false }]) assert.throws(() => parseSettings(value));
+  assert.deepEqual(parseSettings({ chromePath: '/opt/chrome', detectedPath: '/usr/bin/chromium', available: true }), { chromePath: '/opt/chrome', detectedPath: '/usr/bin/chromium', available: true });
+  for (const detectedPath of ['', '/bin/chrome\nother', '/bin/chrome\0', 'x'.repeat(32769)]) assert.throws(() => parseSettings({ chromePath: '', detectedPath, available: true }), /自动发现路径/);
 });
 test('runtime parser rejects malformed and cross-session boundaries before display', () => {
   // Verify schema and ownership before rendering diagnostic content.

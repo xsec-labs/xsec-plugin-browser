@@ -77,8 +77,7 @@ class BrowserLease {
 export class BrowserController {
   constructor(rpc, context, host) {
     this.host = host; this.surfaceKind = context?.kind === "settings-page";
-    this.settings = { loading: true, saving: false, path: "", error: "", errorId: "", saved: false, detectedPath: null, available: false };
-    this.settingsWriteOwner = 0; this.settingsReadQueued = false;
+    this.settings = { loading: false, saving: false, path: "", chromePath: null, writeUncertain: false, errorKind: "", error: "", errorId: "", saved: false, detectedPath: null, available: false };
     this.runtime = { open: false, loading: false, content: "", error: "", errorId: "", upgrade: false, upgrading: false };
     this.runtimeRevision = 0; this.runtimeUpgradeOperation = undefined; this.errors = { workspace: "", surface: "", control: "" };
     this.rpc = rpc; this.context = context || {}; this.key = workspaceKey(this.context);
@@ -98,7 +97,7 @@ export class BrowserController {
     if (this.disposed) throw new Error("浏览器控制器已释放");
     if ((context?.kind === "settings-page") !== this.surfaceKind) throw new Error("浏览器页面类型变化需要重新挂载");
     const visibilityRevision = ++this.visibilityRevision; const next = context || {}; const changed = workspaceKey(next) !== this.key;
-    this.context = next; this.key = workspaceKey(next); if (this.settingsPage()) return this.loadSettings();
+    this.context = next; this.key = workspaceKey(next); if (this.settingsPage()) return;
     if (changed) { this.invalidateRefresh(); this.state.userSelected = false; this.state.sessionId = null; this.state.follow = true; await this.resetPages(); }
     if (this.visible()) await this.manualRefresh();
     else await this.teardownWorkspace(visibilityRevision);
@@ -110,7 +109,7 @@ export class BrowserController {
   }
   stopBusiness() {
     if (this.businessDisposal) return this.businessDisposal;
-    this.disposed = true; this.settingsRevision++; this.settingsWriteOwner++; this.runtimeRevision++;
+    this.disposed = true; this.settingsRevision++; this.runtimeRevision++;
     this.invalidateRefresh(); this.clearTimer(); this.clearPendingMove();
     window.removeEventListener("keydown", this.onEscape); window.removeEventListener("blur", this.onWindowBlur);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
@@ -408,51 +407,60 @@ export class BrowserController {
     this.render();
   }
   buildSettings() { this.view = mountBrowserView(this.root, this, this.host); return this.loadSettings(); }
-  editSettings(path) { if (this.disposed || this.settings.saving || this.settings.loading) return; this.settings = { ...this.settings, path, error: "", errorId: "", saved: false }; this.render(); }
-  async loadSettings() {
-    if (this.disposed) return;
-    if (this.settings.saving) { this.settingsReadQueued = true; this.settingsRevision++; return; }
-    const revision = ++this.settingsRevision, operationId = crypto.randomUUID(); this.settingsReady = false;
-    this.settings = { ...this.settings, loading: true, error: "", errorId: "", saved: false }; this.render();
-    try {
-      const result = parseSettings(await this.rpc.readSettings());
-      if (this.disposed || revision !== this.settingsRevision) return;
-      this.settingsReady = true; this.settings = { ...this.settings, ...result, path: result.chromePath, loading: false };
-      console.info("browser.settings.read.completed", { operation_id: operationId, outcome: "completed" });
-    } catch (error) {
-      if (this.disposed || revision !== this.settingsRevision) return;
-      this.settings = { ...this.settings, loading: false, error: errorText(error), errorId: operationId };
-      console.error("browser.settings.read.failed", { operation_id: operationId, outcome: "failed" });
-    }
+  settingsDirty() { return this.settings.path !== (this.settings.chromePath === null ? "" : this.settings.chromePath); }
+  editSettings(path) {
+    if (this.disposed || this.settings.saving || this.settings.loading) return;
+    this.settings = { ...this.settings, path, saved: false,
+      ...(this.settings.errorKind === "validation" ? { error: "", errorId: "", errorKind: "" } : {}) };
     this.render();
   }
+  async loadSettings() {
+    if (this.disposed || this.settings.saving || this.settings.loading) return;
+    const revision = ++this.settingsRevision, operationId = crypto.randomUUID(), startedAt = performance.now();
+    const current = () => !this.disposed && revision === this.settingsRevision;
+    this.settingsReady = false;
+    this.settings = { ...this.settings, loading: true, error: "", errorId: "", errorKind: "", saved: false }; this.render();
+    console.info("browser.settings.read.started", { operation_id: operationId });
+    try {
+      const result = parseSettings(await this.rpc.readSettings());
+      if (!current()) return;
+      const path = this.settingsDirty() || this.settings.writeUncertain ? this.settings.path : result.chromePath;
+      this.settingsReady = true;
+      this.settings = { ...this.settings, ...result, path, writeUncertain: false };
+      console.info("browser.settings.read.completed", { operation_id: operationId, outcome: "completed", elapsedMs: Math.round(performance.now() - startedAt) });
+    } catch (error) {
+      if (!current()) return;
+      this.settings = { ...this.settings, error: errorText(error), errorId: operationId, errorKind: "read" };
+      console.error("browser.settings.read.failed", { operation_id: operationId, outcome: "failed" });
+    } finally {
+      if (current()) { this.settings = { ...this.settings, loading: false }; this.render(); }
+    }
+  }
   async saveSettings() {
-    if (this.disposed || !this.settingsReady || this.settings.saving) return;
+    if (this.disposed || !this.settingsReady || this.settings.loading || this.settings.saving || !this.settingsDirty()) return;
     const operationId = crypto.randomUUID(); let chromePath;
     try { chromePath = validateChromePath(this.settings.path); }
-    catch (error) { this.settings = { ...this.settings, error: errorText(error), errorId: operationId, saved: false }; console.error("browser.settings.validation.failed", { operation_id: operationId, outcome: "failed" }); this.render(); return; }
-    const revision = this.settingsRevision, owner = ++this.settingsWriteOwner;
-    this.settings = { ...this.settings, saving: true, saved: false, error: "", errorId: "" }; this.render();
+    catch (error) { this.settings = { ...this.settings, error: errorText(error), errorId: operationId, errorKind: "validation", saved: false }; console.error("browser.settings.validation.failed", { operation_id: operationId, outcome: "failed" }); this.render(); return; }
+    const revision = ++this.settingsRevision, startedAt = performance.now();
+    const current = () => !this.disposed && revision === this.settingsRevision;
+    this.settingsReady = false;
+    this.settings = { ...this.settings, saving: true, saved: false, error: "", errorId: "", errorKind: "" }; this.render();
     console.info("browser.settings.save.started", { operation_id: operationId });
     try {
-      const acknowledgement = parseSettings(await this.rpc.writeSettings(chromePath));
-      if (acknowledgement.chromePath !== chromePath) throw new Error("浏览器路径写入回执不一致");
-      if (this.disposed || revision !== this.settingsRevision) return;
-      const result = parseSettings(await this.rpc.readSettings());
-      if (this.disposed || revision !== this.settingsRevision) return;
-      if (result.chromePath !== chromePath) throw new Error("浏览器路径持久值读回不一致");
-      this.settings = { ...this.settings, ...result, path: result.chromePath, saved: true };
-      console.info("browser.settings.save.completed", { operation_id: operationId, outcome: "completed" });
+      const result = parseSettings(await this.rpc.writeSettings(chromePath));
+      if (!current()) return;
+      if (result.chromePath !== chromePath) throw new Error("浏览器路径写入回执不一致");
+      this.settingsReady = true;
+      this.settings = { ...this.settings, ...result, path: result.chromePath, writeUncertain: false, saved: true };
+      console.info("browser.settings.save.completed", { operation_id: operationId, outcome: "completed", elapsedMs: Math.round(performance.now() - startedAt) });
     } catch (error) {
-      if (!this.disposed && revision === this.settingsRevision) {
-        this.settings = { ...this.settings, error: errorText(error), errorId: operationId };
+      if (current()) {
+        this.settingsReady = false;
+        this.settings = { ...this.settings, writeUncertain: true, error: errorText(error), errorId: operationId, errorKind: "write" };
         console.error("browser.settings.save.failed", { operation_id: operationId, outcome: "failed" });
       }
     } finally {
-      if (!this.disposed && owner === this.settingsWriteOwner) {
-        this.settings = { ...this.settings, saving: false }; this.render();
-        if (this.settingsReadQueued) { this.settingsReadQueued = false; await this.loadSettings(); }
-      }
+      if (current()) { this.settings = { ...this.settings, saving: false }; this.render(); }
     }
   }
 }

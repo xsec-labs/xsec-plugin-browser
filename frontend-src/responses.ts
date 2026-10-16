@@ -26,6 +26,7 @@ export function parseSettings(value: unknown) {
   const chromePath = text(response.chromePath, '浏览器路径');
   if (chromePath.length > 32768 || /[\0-\x1f\x7f]/.test(chromePath)) throw new Error('浏览器路径响应无效');
   if (response.detectedPath !== null && typeof response.detectedPath !== 'string') throw new Error('自动发现路径响应无效');
+  if (typeof response.detectedPath === 'string' && (!response.detectedPath.length || response.detectedPath.length > 32768 || /[\0-\x1f\x7f]/.test(response.detectedPath))) throw new Error('自动发现路径响应无效');
   if (typeof response.available !== 'boolean' || response.available !== (response.detectedPath !== null)) throw new Error('自动发现状态响应无效');
   return { chromePath, detectedPath: response.detectedPath as string | null, available: response.available };
 }

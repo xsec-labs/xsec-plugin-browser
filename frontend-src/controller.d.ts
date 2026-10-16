@@ -22,6 +22,7 @@ export interface BrowserState {
 export interface SettingsState {
   loading: boolean; saving: boolean; path: string; error: string; errorId: string; saved: boolean;
   detectedPath: string | null; available: boolean;
+  chromePath: string | null; writeUncertain: boolean; errorKind: '' | 'read' | 'write' | 'validation';
 }
 export interface RuntimeState {
   open: boolean; loading: boolean; content: string; error: string; errorId: string; upgrade: boolean; upgrading: boolean;
@@ -69,6 +70,7 @@ export class BrowserController {
   closeRuntimeDiagnostics(): void;
   upgradeRuntimeSession(): Promise<void>;
   loadSettings(): Promise<void>;
+  settingsDirty(): boolean;
   editSettings(path: string): void;
   saveSettings(): Promise<void>;
 }

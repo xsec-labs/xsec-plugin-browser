@@ -12,7 +12,7 @@ import type { BrowserController, BrowserState, RuntimeState, SettingsState, Host
 
 interface Snapshot {
   state: BrowserState; settings: SettingsState; runtime: RuntimeState;
-  live: boolean; canControl: boolean; controlBusy: boolean; hasLease: boolean; settingsReady: boolean; closingPages: Set<string>;
+  live: boolean; canControl: boolean; controlBusy: boolean; hasLease: boolean; settingsReady: boolean; settingsDirty: boolean; closingPages: Set<string>;
   hasPage: boolean; frameVisible: boolean; error: string; errorId: string; surfaceErrorId: string;
 }
 function snapshot(controller: BrowserController): Snapshot {
@@ -20,7 +20,7 @@ function snapshot(controller: BrowserController): Snapshot {
   return {
     state: { ...controller.state }, settings: { ...controller.settings }, runtime: { ...controller.runtime },
     live: Boolean(session?.live), canControl: Boolean(controller.lease?.control && controller.lease.browserSessionId === session?.id),
-    controlBusy: controller.controlBusy, hasLease: Boolean(controller.lease), settingsReady: controller.settingsReady, closingPages: new Set(controller.closingPages),
+    controlBusy: controller.controlBusy, hasLease: Boolean(controller.lease), settingsReady: controller.settingsReady, settingsDirty: controller.settingsDirty(), closingPages: new Set(controller.closingPages),
     hasPage: Boolean(controller.page()), frameVisible: Boolean(session?.live && controller.page() && controller.surface && controller.frameSurfaceId === controller.surface.id),
     error: controlError || controller.state.error,
     errorId: controlError ? controller.errors.control : controller.errors.workspace,
@@ -121,19 +121,39 @@ function Workspace({ controller, model }: { controller: BrowserController; model
   </main>;
 }
 function Settings({ controller, model }: { controller: BrowserController; model: Snapshot }) {
-  const s = model.settings, disabled = s.loading || s.saving;
+  const s = model.settings, disabled = s.loading || s.saving, composing = useRef(false);
+  const canSave = !disabled && model.settingsReady && model.settingsDirty;
+  const status = s.loading ? '正在读取浏览器路径…' : s.saving ? '正在保存浏览器路径…' : s.saved ? '浏览器路径已保存；新建浏览器会话时生效。' :
+    s.writeUncertain ? '保存结果尚未确认。草稿已保留，请重新读取后核对。' : !model.settingsReady ? '请重新读取以确认当前设置。' : model.settingsDirty ? '有未保存的修改。重新读取会保留当前草稿。' : '当前设置已读取。';
+  const errorTitle = s.errorKind === 'validation' ? '请检查浏览器路径' : s.errorKind === 'read' ? '无法读取浏览器路径' : '浏览器路径保存失败';
   const platform = navigator.userAgent, placeholder = platform.includes('Windows') ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : platform.includes('Mac') ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/google-chrome';
-  return <main className="browser-settings"><PageHeader title="浏览器会话" description="配置新建浏览器会话使用的 Chrome 可执行文件。"/>
+  return <main className="browser-settings" data-settings-state={s.loading ? 'loading' : s.saving ? 'saving' : !model.settingsReady ? 'unconfirmed' : 'ready'}>
+    <PageHeader title="浏览器会话" description="配置新建浏览器会话使用的 Chrome 可执行文件。"/>
     <Section title="浏览器路径"><p>留空使用系统自动发现结果。自定义路径须指向本机的浏览器可执行文件，保存后在新建会话时生效。</p>
-      <Field label="自定义 Chrome 路径" hint="支持 Windows、macOS 和 Linux 绝对路径。">{props => <Input {...props} placeholder={placeholder} value={s.path}
-        disabled={disabled} onChange={event => controller.editSettings(event.currentTarget.value)}/>}</Field>
-      <div className="browser-settings-actions"><ControlButton loading={s.saving} disabled={disabled || !model.settingsReady} onClick={() => void controller.saveSettings()}>保存</ControlButton>
-        <ControlButton variant="secondary" disabled={s.saving} onClick={() => void controller.loadSettings()}>重新读取</ControlButton></div>
-      {s.loading ? <Spinner label="正在读取浏览器路径…"/> : null}
-      {s.saved ? <p role="status" className="browser-saved">浏览器路径已保存；新建浏览器会话时生效。</p> : null}
-      {s.error ? <ErrorState title="浏览器路径设置失败" description={s.error} errorId={s.errorId}/> : null}
-      {!s.loading && !s.error ? <div className="browser-detected"><Badge tone={s.available ? 'success' : 'warning'}>{s.available ? '已发现系统浏览器' : '未发现系统浏览器'}</Badge>
-        {s.detectedPath ? <p>{s.detectedPath}</p> : null}</div> : null}
+      <Field label="自定义 Chrome 路径" hint="支持 Windows、macOS 和 Linux 绝对路径。按 Enter 保存。">{props => <Input {...props} aria-invalid={s.errorKind === 'validation'} placeholder={placeholder} value={s.path}
+        disabled={disabled} spellCheck={false} autoComplete="off" onChange={event => controller.editSettings(event.currentTarget.value)}
+        onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
+        onKeyDown={event => { if (event.key === 'Enter' && !event.repeat && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && !composing.current) {
+          event.preventDefault(); if (canSave) void controller.saveSettings();
+        } }}/>}</Field>
+      <div className="browser-settings-actions"><ControlButton loading={s.saving} disabled={!canSave} onClick={() => void controller.saveSettings()}>保存</ControlButton>
+        <ControlButton variant="secondary" disabled={disabled} onClick={() => void controller.loadSettings()}>重新读取</ControlButton></div>
+      <div className="browser-settings-feedback" role="status" aria-live="polite" aria-atomic="true">
+        {disabled ? <Spinner label={status}/> : <p className={s.saved ? 'browser-saved' : undefined}>{status}</p>}
+      </div>
+      {s.error ? <ErrorState title={errorTitle} description={s.error} errorId={s.errorId}/> : null}
+    </Section>
+    <Section title="已确认的设置">
+      {model.settingsReady ? <div className="browser-detected"><Badge>{s.chromePath ? '使用自定义路径' : '使用系统自动发现'}</Badge>
+        <p>{s.chromePath || '新建会话时使用系统发现的浏览器。'}</p>
+        {model.settingsDirty ? <p>上方草稿尚未应用，当前新会话仍使用此处设置。</p> : null}
+      </div> : <p>{disabled ? '操作完成后显示已确认的设置。' : '当前持久设置尚未确认，请重新读取。'}</p>}
+    </Section>
+    <Section title="系统自动发现">
+      {model.settingsReady ? <div className="browser-detected"><Badge tone={s.available ? 'success' : 'warning'}>{s.available ? '已发现系统浏览器' : '未发现系统浏览器'}</Badge>
+        {s.detectedPath ? <p>{s.detectedPath}</p> : <p>可安装 Chrome，或填写本机已有浏览器的可执行文件路径。</p>}
+        {s.chromePath ? <p>当前已设置自定义路径，系统发现结果供参考。</p> : null}
+      </div> : <p>{disabled ? '正在确认系统发现结果。' : '请重新读取以获取系统发现结果。'}</p>}
     </Section>
   </main>;
 }
