@@ -33,9 +33,9 @@ jobs:
             .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
           const bindings = Object.values(extension?.contributes?.agentTools ?? {})
             .map((binding) => binding.mcpTool).sort();
-          if (root.name !== "com.xsec.workspace.browser" || root.version !== "3.0.0") process.exit(1);
+          if (root.name !== "com.xsec.workspace.browser" || root.version !== "3.1.0") process.exit(1);
           if (catalog.name !== root.name || catalog.version !== root.version) process.exit(1);
-          if (!extension || extension.schemaVersion !== 2) process.exit(1);
+          if (!extension || extension.schemaVersion !== 3) process.exit(1);
           if (JSON.stringify(mcp) !== JSON.stringify({ mcpServers: { browser: { type: "stdio", command: "./bin/browser-mcp", cwd: "${PLUGIN_ROOT}" } } })) process.exit(1);
           if (tools.length !== 53 || tools.some((tool) => !tool.startsWith("browser_"))) process.exit(1);
           if (JSON.stringify(bindings) !== JSON.stringify(tools)) process.exit(1);
