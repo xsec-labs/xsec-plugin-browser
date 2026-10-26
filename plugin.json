@@ -101,7 +101,7 @@
             "mcpServer": "browser",
             "mcpTool": "browser_navigate"
           },
-          "xsec.browser.mcp.navigateBack": {
+          "xsec.browser.mcp.navigate-back": {
             "capability": "browser.control",
             "binding": "session",
             "mcpServer": "browser",
