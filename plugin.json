@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "com.xsec.workspace.browser",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "XSEC browser session MCP, runtime, and workspace tool",
   "author": {
     "name": "XSEC"
@@ -9,7 +9,7 @@
   "license": "MIT",
   "extensions": {
     "com.xsec.desktop": {
-      "schemaVersion": 2,
+      "schemaVersion": 3,
       "displayName": "浏览器会话",
       "publisher": "XSEC",
       "icon": "globe",
@@ -18,7 +18,8 @@
         "pluginApi": "^1.4.0"
       },
       "entrypoints": {
-        "frontend": "./com.xsec.desktop/frontend/index.js"
+        "frontend": "./com.xsec.desktop/frontend/index.js",
+        "native": "builtin:com.xsec.workspace.browser"
       },
       "activationEvents": [
         "onWorkspaceTool:browser",
